@@ -1,0 +1,16 @@
+src/
+test/
+scripts/
+node_modules/
+.vscode/
+.github/
+esbuild.js
+tsconfig.json
+package-lock.json
+dist/**/*.js.map
+images/icon.svg
+.gitignore
+.vscodeignore
+.markdownlint.json
+.vscode-test/
+docs/

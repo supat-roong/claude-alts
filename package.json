@@ -1,0 +1,187 @@
+{
+  "name": "claude-alts",
+  "displayName": "Claude Alts",
+  "description": "Companion for the Claude Code VS Code extension: run a different Claude account in each VSCode window simultaneously — capture, switch, and isolate accounts per window.",
+  "version": "1.0.0",
+  "publisher": "supat-roong",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supat-roong/claude-alts"
+  },
+  "bugs": {
+    "url": "https://github.com/supat-roong/claude-alts/issues"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "supat-roong"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude code",
+    "anthropic",
+    "profiles",
+    "profile manager",
+    "accounts",
+    "multi-account"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Claude accounts live in data directories on the local file system, which virtual workspaces don't have."
+    },
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Works in Restricted Mode. The extension never reads or executes workspace content — it only uses the workspace folder path to tell windows apart."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeAlts.switchAccount",
+        "title": "Switch Account for This Window",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.captureAccount",
+        "title": "Save Current Account",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.showStatus",
+        "title": "Account Quick Action",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.removeProfile",
+        "title": "Forget a Saved Account",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.showLog",
+        "title": "Show Log",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.addFolderRule",
+        "title": "Always Use an Account for This Folder…",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.setDefaultAccount",
+        "title": "Set the Account for New Windows…",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.labelAccount",
+        "title": "Name and Colour an Account…",
+        "category": "Claude Alts"
+      },
+      {
+        "command": "claudeAlts.setupShell",
+        "title": "Use Accounts in Other Terminals…",
+        "category": "Claude Alts"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Alts",
+      "properties": {
+        "claudeAlts.offerSwitchOnLimit": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "When this window's account hits a usage limit, offer to continue with another saved account (least used first). It only ever asks: nothing switches unless you pick an account."
+        },
+        "claudeAlts.defaultAccount": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "The account (its email) a window starts with when it has never run one. Empty: the account used most recently, anywhere."
+        },
+        "claudeAlts.folderRules": {
+          "type": "array",
+          "default": [],
+          "scope": "machine",
+          "markdownDescription": "Pick a window's account by folder or git remote; the first match wins. An account chosen in the window itself still takes precedence. Example: `[{ \"folder\": \"~/work/**\", \"account\": \"me@work.com\" }, { \"gitRemote\": \"github.com/my-org/*\", \"account\": \"me@work.com\" }]`",
+          "items": {
+            "type": "object",
+            "required": [
+              "account"
+            ],
+            "properties": {
+              "folder": {
+                "type": "string",
+                "description": "A folder path or glob (~ allowed). Also matches everything inside it."
+              },
+              "gitRemote": {
+                "type": "string",
+                "description": "A remote URL glob, host/path style, e.g. github.com/my-org/*"
+              },
+              "account": {
+                "type": "string",
+                "description": "The account's email."
+              }
+            }
+          }
+        },
+        "claudeAlts.accountLabels": {
+          "type": "object",
+          "default": {},
+          "scope": "application",
+          "markdownDescription": "Short names and colours for accounts, keyed by email. The colour is a theme colour id or a hex colour. Example: `{ \"me@work.com\": { \"label\": \"Work\", \"color\": \"charts.blue\" } }`. Easiest set with **Claude Alts: Name and Colour an Account**.",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "check-types": "tsc --noEmit",
+    "compile": "npm run check-types && node esbuild.js",
+    "test": "node --test --test-reporter=spec \"test/*.test.js\"",
+    "test:integration": "npm run compile && node test/integration/run.js",
+    "vscode:prepublish": "npm run check-types && node esbuild.js --production",
+    "vscode:uninstall": "node ./uninstall.js",
+    "package": "vsce package",
+    "release": "vsce publish",
+    "release:ovsx": "ovsx publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}
