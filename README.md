@@ -38,7 +38,7 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 | Requirement | Notes |
 | --- | --- |
 | Linux, macOS or Windows | desktop Linux, WSL, Remote-SSH (Linux host), a dev container, a Mac whose Claude Code keeps its sign-in in `~/.claude/.credentials.json` (not the Keychain), or native Windows (experimental) |
-| VSCode ≥ 1.85 | on WSL/SSH the extension installs into the remote Linux side |
+| VSCode ≥ 1.85 | in a remote window (WSL, Remote-SSH, a dev container, Remote Tunnels) the extension installs on the remote side, next to Claude Code, since that's where Claude Code keeps its accounts |
 | [Claude Code extension](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) | the thing being multiplied |
 | `claude` CLI | asked read-only whether a directory is signed in. The binary bundled with Claude Code is used when `claude` isn't on `$PATH` (and first, on macOS) |
 
