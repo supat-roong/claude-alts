@@ -14,7 +14,7 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 
 ℹ️ Based on [Claude Parallel Accounts](https://github.com/DercasDrol/claude-parallel-profiles) by dercasdrol, published separately with its own settings and data folder. Already using it? See [Coming from Claude Parallel Accounts](#coming-from-claude-parallel-accounts).
 
-> 🐧🍎🪟 **Linux, macOS and Windows:** desktop VSCode on Linux, **WSL**, **Remote-SSH** to a Linux host, dev containers, and macOS where Claude Code keeps its sign-in in `~/.claude/.credentials.json`. On a Mac whose Claude Code keeps it in the **Keychain** the extension stays inert and the status bar says why. **Native Windows** support is experimental, see [Native Windows](#native-windows). The check happens where the extension actually runs: in a WSL/SSH window that's the *remote* side.
+> 🐧🍎🪟 **Linux, macOS and Windows:** desktop VSCode on Linux, **WSL**, **Remote-SSH** to a Linux host, dev containers, and macOS where Claude Code keeps its sign-in in `~/.claude/.credentials.json`. On a Mac whose Claude Code keeps it in the **Keychain** the extension stays inert and the status bar says why. **Native Windows** works too, with a few differences, see [Native Windows](#native-windows). The check happens where the extension actually runs: in a WSL/SSH window that's the *remote* side.
 
 ---
 
@@ -37,7 +37,7 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 
 | Requirement | Notes |
 | --- | --- |
-| Linux, macOS or Windows | desktop Linux, WSL, Remote-SSH (Linux host), a dev container, a Mac whose Claude Code keeps its sign-in in `~/.claude/.credentials.json` (not the Keychain), or native Windows (experimental) |
+| Linux, macOS or Windows | desktop Linux, WSL, Remote-SSH (Linux host), a dev container, a Mac whose Claude Code keeps its sign-in in `~/.claude/.credentials.json` (not the Keychain), or native Windows |
 | VSCode ≥ 1.85 | |
 | [Claude Code extension](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) | the thing being multiplied |
 | `claude` CLI | asked read-only whether a directory is signed in. The binary bundled with Claude Code is used when `claude` isn't on `$PATH` (and first, on macOS) |
@@ -145,7 +145,7 @@ The details that make it reliable — each one a bug found and fixed:
 
 ## Native Windows
 
-Experimental. Claude Code on Windows keeps its sign-in in `%USERPROFILE%\.claude\.credentials.json`, so the extension works as on Linux, with these differences:
+Claude Code on Windows keeps its sign-in in `%USERPROFILE%\.claude\.credentials.json`, so the extension works as on Linux, with these differences:
 
 - **History links** are directory junctions, and a hard link for `history.jsonl`. Neither needs administrator rights or Developer Mode.
 - **The CLI** is the `claude.exe` bundled with Claude Code, or `claude` run through `cmd` (for an npm install).
@@ -228,7 +228,7 @@ Saved accounts are copied as soon as Claude Alts sees Claude Parallel Accounts i
 
 ## Limitations
 
-- **Native Windows is experimental**, and *Forget* can't interrupt running sessions there (see [Native Windows](#native-windows)). **Keychain-backed Macs aren't supported:** there the extension stays inert. It needs Claude Code's sign-in in `~/.claude/.credentials.json`.
+- **On native Windows, *Forget* can't interrupt running sessions** (see [Native Windows](#native-windows)). **Keychain-backed Macs aren't supported:** there the extension stays inert. It needs Claude Code's sign-in in `~/.claude/.credentials.json`.
 - ***Forget* stops `claude` sessions by executable name.** A CLI installed through npm runs as `node` and isn't recognised; close those sessions yourself.
 - **The limit offer can't tell windows on the same folder apart.** If a folder is also open as part of a `.code-workspace` in another window, or used by `claude-as` in a terminal, a limit hit there can trigger the offer here. It only ever asks.
 - **Loads at every VSCode start-up** (`*` activation). Required to win the activation race against Claude Code — see [How it works](#how-it-works). The extension is deliberately tiny, so the impact is milliseconds.
