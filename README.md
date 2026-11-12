@@ -69,7 +69,7 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 
 **Usage.** The hover card shows this account's session and weekly usage with reset times, and the Switch list shows every account's. The numbers are the ones Claude Code itself caches in each account's config; the extension makes no network call to get them, so they are as fresh as Claude Code last left them (the card says how old).
 
-**Hitting a limit.** When Claude Code refuses a request in this window because the account hit a limit, the extension offers *Continue as …* with your other saved accounts, least used first. Picking one switches this window; the conversation is in the shared history, so you reopen it from Claude Code's session list. It asks at most once per 15 minutes and never switches by itself. Turn it off with `claudeAlts.offerSwitchOnLimit`.
+**Hitting a limit.** When Claude Code refuses a request in this window because the account hit a limit, the extension offers *Continue as …* with your other saved accounts, least used first, each with its usage (say, *Continue as Work (12% used)*). Accounts that are at a limit themselves aren't offered. Picking one switches this window; the conversation is in the shared history, so you reopen it from Claude Code's session list. It asks at most once per 15 minutes and never switches by itself. Turn it off with `claudeAlts.offerSwitchOnLimit`.
 
 **Other terminals.** Integrated terminals already follow their window. For anything else (iTerm, Windows Terminal, ssh), run *Use Accounts in Other Terminals* and add the line it shows to your shell profile. Then `claude-as <account> [args]` runs Claude Code as that account, `claude-use <account>` switches the shell, and `claude-accounts` lists them. `<account>` is the email or the saved name. The script is kept up to date as accounts come and go; the extension never edits your profile itself.
 
@@ -78,6 +78,22 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 **Forgetting** (status bar hover → *Forget…*) asks for confirmation, then removes the account from the list, **deletes its OAuth token from every copy on this machine**, interrupts Claude sessions running on it, and reloads any window that was using it. That window comes back signed out and offers to switch to another saved account. If a copy of the sign-in can't be deleted, nothing is forgotten and you're told where it is. History, settings and the data folders stay on disk; signing in again brings the account back.
 
 **Signing out** (Claude Code's account menu, or `/logout`) revokes the token on Anthropic's side — for every copy of it. The extension notices and removes the account from the list everywhere, since switching to it could only fail.
+
+### Commands
+
+Everything is reachable from the status bar; the Command Palette has it all under **Claude Alts:**
+
+| Command | What it does |
+| --- | --- |
+| *Switch Account for This Window* | Pick another saved account; the window reloads onto it. |
+| *Account Quick Action* | What clicking the status bar does: switch, pick an account, or save a new one. |
+| *Save Current Account* | Save the signed-in account by hand (it's normally saved automatically). |
+| *Forget a Saved Account* | Sign an account out everywhere on this machine and remove it from the list. |
+| *Always Use an Account for This Folder…* | Add a folder rule for the current workspace. |
+| *Set the Account for New Windows…* | Choose the account a brand-new window starts with. |
+| *Name and Colour an Account…* | Give an account a short label and a status bar colour. |
+| *Use Accounts in Other Terminals…* | Set up `claude-as`, `claude-use` and `claude-accounts` for outside terminals. |
+| *Show Log* | Open the extension's output channel. |
 
 ---
 
@@ -117,7 +133,7 @@ Everything the extension creates lives under that one `~/.claude-alts` folder.
 
 The details that make it reliable — each one a bug found and fixed:
 
-- **Activation order.** Claude Code reads `CLAUDE_CONFIG_DIR` the moment it activates and caches it — so this extension must get there *first*. It uses the `*` activation event, which VSCode's docs discourage because it loads the extension at every start-up: a deliberate, load-bearing trade-off — with any lazier activation the variable would be set after Claude Code has already read it, and per-window accounts simply wouldn't work. The cost is kept negligible: a ~25 KB bundle with zero dependencies, and the activation path itself only sets the variable and does a handful of file checks — everything heavier is deferred. (The same start-up read is why switching needs a window reload.)
+- **Activation order.** Claude Code reads `CLAUDE_CONFIG_DIR` the moment it activates and caches it — so this extension must get there *first*. It uses the `*` activation event, which VSCode's docs discourage because it loads the extension at every start-up: a deliberate, load-bearing trade-off — with any lazier activation the variable would be set after Claude Code has already read it, and per-window accounts simply wouldn't work. The cost is kept negligible: a ~60 KB bundle with zero runtime dependencies, and the activation path itself only sets the variable and does a handful of file checks — everything heavier is deferred. (The same start-up read is why switching needs a window reload.)
 - **A working copy per window.** A `/login` writes into the window's own directory, so it can only ever affect that window — "which window signed in?" is answered by construction, and no other window's account can be overwritten. Copies of an OAuth token authenticate independently, so the duplicates are safe.
 - **No competing source of truth.** A machine-wide `CLAUDE_CONFIG_DIR` in `claudeCode.environmentVariables` or `terminal.integrated.env` would force all windows onto one account — the extension strips it and keeps isolation in `process.env` only.
 - **Terminals follow the window.** Integrated terminals get the window's account via VSCode's environment-variable API. External terminals keep using the default `~/.claude` unless you use the [shell helpers](#daily-use).
@@ -229,12 +245,13 @@ Saved accounts are copied as soon as Claude Alts sees Claude Parallel Accounts i
 npm ci            # install
 npm run watch     # dev build with watch
 npm run compile   # typecheck + build
-npm test          # tests: uninstall safety, migration, shell helpers in real shells
+npm test          # unit tests: logic, uninstall safety, migration, shell helpers in real shells
+npm run test:integration  # loads the extension in a real VS Code
 npm run package   # build .vsix
 npm run release:ovsx  # publish to Open VSX by hand (needs OVSX_PAT)
 ```
 
-- **CI** ([ci.yml](.github/workflows/ci.yml)): every push/PR to `main` builds and tests on Linux, macOS and Windows, then uploads the `.vsix` artifact.
+- **CI** ([ci.yml](.github/workflows/ci.yml)): every push/PR to `main` builds and tests on Linux, macOS and Windows, runs the integration test on Linux, then uploads the `.vsix` artifact.
 - **Manual test** ([docs/manual-test.md](docs/manual-test.md)): what CI can't cover, with real sign-ins. Run it per platform before a release.
 - **Release** ([release.yml](.github/workflows/release.yml)): pushing a `v*` tag builds, tests, creates a GitHub Release with the `.vsix`, and publishes to the VS Code Marketplace (Trusted Publishing via GitHub OIDC — no secret) and Open VSX (`OVSX_PAT` secret).
 
