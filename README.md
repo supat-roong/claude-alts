@@ -253,7 +253,7 @@ npm run release:ovsx  # publish to Open VSX by hand (needs OVSX_PAT)
 
 - **CI** ([ci.yml](.github/workflows/ci.yml)): every push/PR to `main` builds and tests on Linux, macOS and Windows, runs the integration test on Linux, then uploads the `.vsix` artifact.
 - **Manual test** ([docs/manual-test.md](docs/manual-test.md)): what CI can't cover, with real sign-ins. Run it per platform before a release.
-- **Release** ([release.yml](.github/workflows/release.yml)): pushing a `v*` tag builds, tests, creates a GitHub Release with the `.vsix`, and publishes to the VS Code Marketplace (Trusted Publishing via GitHub OIDC — no secret) and Open VSX (`OVSX_PAT` secret).
+- **Release** ([release.yml](.github/workflows/release.yml)): pushing a `v*` tag builds, tests, creates a GitHub Release with the `.vsix`, and publishes to the VS Code Marketplace (Trusted Publishing via GitHub OIDC — no secret) and Open VSX (trusted publishing; the first-ever Open VSX publish needs an `OVSX_PAT` secret).
 
 ```bash
 # release flow: make sure package.json version matches the tag, then

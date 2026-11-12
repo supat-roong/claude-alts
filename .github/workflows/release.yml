@@ -23,8 +23,8 @@ jobs:
         runs-on: ubuntu-latest
         permissions:
             contents: write
-            # Trusted Publishing: lets vsce exchange a GitHub OIDC token for a
-            # short-lived Marketplace credential, so no VSCE_PAT secret is needed.
+            # Trusted Publishing: lets vsce and ovsx exchange a GitHub OIDC token
+            # for a short-lived registry credential, so no PAT secrets are needed.
             id-token: write
 
         steps:
@@ -111,13 +111,17 @@ jobs:
                     npx @vscode/vsce publish --oidc --packagePath "$f"
                   done
 
+            # Open VSX Trusted Publishing (open-vsx.org → Settings → Trusted
+            # Publishers). ovsx exchanges the job's OIDC token automatically
+            # when no access token is set. Open VSX only allows registering an
+            # extension that already has a version, so the very first publish
+            # needs the OVSX_PAT secret; once trusted publishing is registered,
+            # delete that secret. (If set, the PAT takes precedence.)
             - name: Publish to Open VSX Registry
-              if: |
-                  (startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true') &&
-                  env.OVSX_PAT != ''
+              if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish == 'true'
               run: |
                   for f in *.vsix; do
-                    npx ovsx publish "$f" -p "$OVSX_PAT"
+                    npx ovsx publish "$f"
                   done
               env:
                   OVSX_PAT: ${{ secrets.OVSX_PAT }}
