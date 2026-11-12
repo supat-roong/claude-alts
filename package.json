@@ -45,7 +45,7 @@
     },
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Works in Restricted Mode. The extension never reads or executes workspace content — it only uses the workspace folder path to tell windows apart."
+      "description": "Works in Restricted Mode. The extension never executes workspace content. It uses the workspace folder path to tell windows apart and, only for gitRemote rules, reads the remote URLs in .git/config."
     }
   },
   "contributes": {

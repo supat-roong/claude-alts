@@ -55,7 +55,7 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 
 ## Daily use
 
-**The status bar item** — `👤 you@example.com` is the account **this window** runs as, confirmed against the real token (`claude auth status`), not just a label. **Click** it and the one action that makes sense right now happens directly: switch when there are other accounts, pick a saved account when the window is signed out, save when the account is new. **Hover** it for the full card — account details, switch/forget actions, and quick links to the extension page, its settings and its log.
+**The status bar item** — `👤 you@example.com` (or the account's name, in its colour, if you gave it one) is the account **this window** runs as, confirmed against the real token (`claude auth status`), not just a label. A `○` after it means the account isn't saved yet; `Claude: sign in` means the window is signed out. **Click** it and the one action that makes sense right now happens directly: switch when there are other accounts, pick a saved account when the window is signed out, save when the account is new. **Hover** it for the full card — account details, switch/forget actions, and quick links to the extension page, its settings and its log.
 
 **Switching** reloads the window; after the reload both the identity Claude Code shows and the token it bills are the ones you picked.
 
@@ -104,12 +104,12 @@ Claude Code has **one** history: it is stored per *data directory*, and vanilla 
 It does that with one store, `~/.claude-alts/shared`, symlinked from every directory:
 
 ```text
-~/.claude/projects                                ──┐
+~/.claude/projects                       ──┐
 ~/.claude-alts/accounts/work/projects    ──┼──▶  ~/.claude-alts/shared/projects/<per-repo>/…
 ~/.claude-alts/windows/a1b2…/projects    ──┘
 ```
 
-- Conversations, session state, plans and todos live there. **Credentials and identity never do** — those stay strictly per-account, which is the whole point of the extension.
+- Conversations (`projects/`), session state, shell snapshots, file-edit history (checkpoints), plans, todos and your prompt history (`history.jsonl`) live there. **Credentials and identity never do** — those stay strictly per-account, which is the whole point of the extension.
 - Transcripts stay keyed by workspace folder, exactly as Claude Code writes them, so nothing leaks between repositories.
 - Hit a usage limit, switch account, carry on in the same conversation.
 
@@ -185,7 +185,7 @@ This extension is built to manage credentials, so it holds itself to a strict po
 - **Conversations are moved, not read.** Shared history relinks the files. The one exception is the limit offer: it reads the lines Claude Code *appends* to this window's own transcripts, only to spot Claude Code's "you've hit your limit" error. Nothing is stored or sent.
 - **Usage numbers are Claude Code's own.** They are read from the cache Claude Code keeps in each account's config; the extension never asks the API.
 - **Minimal footprint elsewhere:** the workspace folder path is hashed to tell windows apart; `claude auth status` is asked (locally, read-only) to confirm a directory is signed in; the process list (`/proc` on Linux/WSL, `ps` on macOS; not available on Windows) is scanned only during *Forget*, to stop `claude` processes running on the token being deleted.
-- **Self-restricted in the VSCode manifest:** disabled in virtual workspaces, and in Restricted Mode (untrusted folders) it never reads workspace content — only the folder's path, to tell windows apart ([`capabilities`](package.json)).
+- **Self-restricted in the VSCode manifest:** disabled in virtual workspaces, and in Restricted Mode (untrusted folders) it never runs anything from the workspace ([`capabilities`](package.json)). From the workspace itself it reads only the folder's path, to tell windows apart, and — only if you have a `gitRemote` rule — the remote URLs in its `.git/config`. Git is never run.
 - **Never touches the Keychain.** On a Mac whose Claude Code keeps its sign-in there, the extension does nothing at all.
 - **Inert where unsupported.** On any OS other than Linux, macOS and Windows it performs no operations at all: no file reads, no writes, no account changes. The uninstall hook is guarded the same way.
 - **Uninstalling cleans up after itself:** the directories the extension created are deleted and stray OAuth tokens wiped; the one token it leaves is in `~/.claude`, exactly where Claude Code keeps its own login with no extension installed — see [Uninstalling](#uninstalling).
