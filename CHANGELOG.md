@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **macOS with the Keychain.** On macOS, Claude Code keeps each data directory's token in the login Keychain, in an item named after the directory (`Claude Code-credentials`, or `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`). The extension no longer stays inert there: a new credential layer (`src/credentials.ts`) reads and writes those items through `/usr/bin/security`, as Claude Code does, and honours Claude Code's plaintext fallback file. Per-window isolation carries over unchanged, since every working directory gets an item of its own.
+  - A Keychain that can't be asked (locked, timed out) is reported as unknown, never as signed out: no account is pruned, no window is treated as logged out, and *Forget* fails closed without changing anything.
+  - The account watcher notices sign-ins and sign-outs in a window by watching the Keychain database and comparing the window item's attributes. The token itself is never read for that.
+  - The uninstall hook runs on macOS too. It hands the last-used account back to the `Claude Code-credentials` item and deletes the items of the directories the extension created, within VSCode's 5 s limit.
+- **Claude Parallel Profiles is recognised** (`rivantmedia.claude-parallel-profiles`), a fork of Claude Parallel Accounts that uses the same folders. Like the original, it can't run beside Claude Alts: while it is installed Claude Alts stays inactive, says so, and imports its saved accounts.
+
+### Removed
+
+- The README's promise that the extension never touches the Keychain. On macOS it now manages Claude Code's own `Claude Code-credentials*` items, and nothing else in the Keychain.
+
 ## 1.0.1 — 2026-11-13
 
 ### Changed

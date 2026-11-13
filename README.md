@@ -14,7 +14,7 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 
 ℹ️ Based on [Claude Parallel Accounts](https://github.com/DercasDrol/claude-parallel-profiles) by dercasdrol, published separately with its own settings and data folder. Already using it? See [Coming from Claude Parallel Accounts](#coming-from-claude-parallel-accounts).
 
-> 🐧🍎🪟 **Linux, macOS and Windows:** desktop VSCode on Linux, **WSL**, **Remote-SSH** to a Linux host, dev containers, and macOS where Claude Code keeps its sign-in in `~/.claude/.credentials.json`. On a Mac whose Claude Code keeps it in the **Keychain** the extension stays inert and the status bar says why. **Native Windows** works too, with a few differences, see [Native Windows](#native-windows). The check happens where the extension actually runs: in a WSL/SSH window that's the *remote* side.
+> 🐧🍎🪟 **Linux, macOS and Windows:** desktop VSCode on Linux, **WSL**, **Remote-SSH** to a Linux host, dev containers, and macOS, where Claude Code keeps each sign-in in the **Keychain** (see [macOS: sign-ins live in the Keychain](#macos-sign-ins-live-in-the-keychain)). **Native Windows** works too, with a few differences, see [Native Windows](#native-windows). The check happens where the extension actually runs: in a WSL/SSH window that's the *remote* side.
 
 ---
 
@@ -37,7 +37,7 @@ Claude Code signs you into **one** account, shared by every VSCode window. If yo
 
 | Requirement | Notes |
 | --- | --- |
-| Linux, macOS or Windows | desktop Linux, WSL, Remote-SSH (Linux host), a dev container, a Mac whose Claude Code keeps its sign-in in `~/.claude/.credentials.json` (not the Keychain), or native Windows |
+| Linux, macOS or Windows | desktop Linux, WSL, Remote-SSH (Linux host), a dev container, macOS, or native Windows |
 | VSCode ≥ 1.85 | |
 | [Claude Code extension](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) | the thing being multiplied |
 | `claude` CLI | asked read-only whether a directory is signed in. The binary bundled with Claude Code is used when `claude` isn't on `$PATH` (and first, on macOS) |
@@ -139,7 +139,18 @@ The details that make it reliable — each one a bug found and fixed:
 - **Terminals follow the window.** Integrated terminals get the window's account via VSCode's environment-variable API. External terminals keep using the default `~/.claude` unless you use the [shell helpers](#daily-use).
 - **Reload safety.** Automatic reloads (after a forget or an in-window sign-in) go through a circuit breaker: state is corrected *before* reloading, and at most one automatic reload of each kind per minute (and three kinds in two minutes). A misbehaving edge case degrades to a message with a button, never a reload loop.
 - **Survives its own absence.** The account in the focused window is mirrored into Claude Code's own default `~/.claude` on every sync, so if the extension is ever gone (uninstalled, disabled, or not yet activated), Claude Code is already signed in there and just works. Nothing important waits on the uninstall script, which VSCode defers to its next restart and may never run.
+- **macOS: one Keychain item per directory.** See [below](#macos-sign-ins-live-in-the-keychain).
 - **Found where it runs.** The extension is published as a single universal package, not per-platform. In WSL and Remote-SSH it executes on the Linux *remote*, but the VSCode *client* that resolves the Marketplace is often Windows or macOS — a Linux-only build would be invisible to that client, which then reports the extension as missing and never updates it. The platform requirement is enforced at runtime instead (the inert mode above).
+
+### macOS: sign-ins live in the Keychain
+
+On macOS, Claude Code doesn't write `.credentials.json`. It keeps each data directory's token in the login Keychain, in an item named after the directory: `Claude Code-credentials` for the default `~/.claude`, and `Claude Code-credentials-<first 8 hex characters of sha256(CLAUDE_CONFIG_DIR)>` for any other. Every working copy therefore gets an item of its own, and windows stay isolated exactly as they do with files.
+
+The extension reads and writes those items the way Claude Code does, through `/usr/bin/security`. Because both go through the same program, neither triggers a Keychain prompt for the other's items. Tokens go in hex-encoded over stdin, so they don't show up in process listings. Claude Code's plaintext fallback (`.credentials.json` in the directory, used when the Keychain has no item for it) is honoured too.
+
+- **A locked Keychain means "can't tell", never "signed out".** No account is dropped and no window is signed out while the Keychain doesn't answer. After a failed check, background checks leave the Keychain alone for 30 seconds.
+- **Sign-ins and sign-outs in a window are noticed** by watching the Keychain database and comparing the window item's attributes. The token itself is never read for that.
+- **Uninstalling** hands the last-used account back to `Claude Code-credentials` and deletes the items of the directories the extension created. A directory whose item can't be deleted is kept, since its path is the only record of the item's name.
 
 ---
 
@@ -186,7 +197,7 @@ This extension is built to manage credentials, so it holds itself to a strict po
 - **Usage numbers are Claude Code's own.** They are read from the cache Claude Code keeps in each account's config; the extension never asks the API.
 - **Minimal footprint elsewhere:** the workspace folder path is hashed to tell windows apart; `claude auth status` is asked (locally, read-only) to confirm a directory is signed in; the process list (`/proc` on Linux/WSL, `ps` on macOS; not available on Windows) is scanned only during *Forget*, to stop `claude` processes running on the token being deleted.
 - **Self-restricted in the VSCode manifest:** disabled in virtual workspaces, and in Restricted Mode (untrusted folders) it never runs anything from the workspace ([`capabilities`](package.json)). From the workspace itself it reads only the folder's path, to tell windows apart, and — only if you have a `gitRemote` rule — the remote URLs in its `.git/config`. Git is never run.
-- **Never touches the Keychain.** On a Mac whose Claude Code keeps its sign-in there, the extension does nothing at all.
+- **On macOS, only Claude Code's own Keychain items.** It reads, writes and deletes the `Claude Code-credentials*` items of the directories it works with, and nothing else in the Keychain. Changes are noticed from item attributes, without reading the token.
 - **Inert where unsupported.** On any OS other than Linux, macOS and Windows it performs no operations at all: no file reads, no writes, no account changes. The uninstall hook is guarded the same way.
 - **Uninstalling cleans up after itself:** the directories the extension created are deleted and stray OAuth tokens wiped; the one token it leaves is in `~/.claude`, exactly where Claude Code keeps its own login with no extension installed — see [Uninstalling](#uninstalling).
 
@@ -211,7 +222,7 @@ Your other accounts stay signed out afterwards; sign into them the normal way. D
 
 ## Coming from Claude Parallel Accounts
 
-The two extensions can't run at the same time: both link Claude Code's own `~/.claude` history to their store. While Claude Parallel Accounts is installed (in any editor on this machine), Claude Alts stays inactive and the status bar says so.
+The two extensions can't run at the same time: both link Claude Code's own `~/.claude` history to their store. While Claude Parallel Accounts is installed (in any editor on this machine), Claude Alts stays inactive and the status bar says so. The same goes for Claude Parallel Profiles, a fork of it that uses the same folders; everything below applies to it too, including accounts kept in the macOS Keychain.
 
 1. Install Claude Alts.
 2. Uninstall Claude Parallel Accounts — in every editor where you have it — and reload.
@@ -228,7 +239,8 @@ Saved accounts are copied as soon as Claude Alts sees Claude Parallel Accounts i
 
 ## Limitations
 
-- **On native Windows, *Forget* can't interrupt running sessions** (see [Native Windows](#native-windows)). **Keychain-backed Macs aren't supported:** there the extension stays inert. It needs Claude Code's sign-in in `~/.claude/.credentials.json`.
+- **On native Windows, *Forget* can't interrupt running sessions** (see [Native Windows](#native-windows)).
+- **On macOS, a `~/.claude-<name>` directory you set up yourself must have been used without a trailing slash** (`CLAUDE_CONFIG_DIR=~/.claude-work`, not `~/.claude-work/`): the Keychain item's name is a hash of the exact path, so the extension can't find an item made under the other spelling.
 - ***Forget* stops `claude` sessions by executable name.** A CLI installed through npm runs as `node` and isn't recognised; close those sessions yourself.
 - **The limit offer can't tell windows on the same folder apart.** If a folder is also open as part of a `.code-workspace` in another window, or used by `claude-as` in a terminal, a limit hit there can trigger the offer here. It only ever asks.
 - **Loads at every VSCode start-up** (`*` activation). Required to win the activation race against Claude Code — see [How it works](#how-it-works). The extension is deliberately tiny, so the impact is milliseconds.
