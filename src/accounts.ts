@@ -131,7 +131,7 @@ function importStore(from: string, to: string, email: string): boolean {
 
 /** True if `dir` is one of the original extension's `~/.claude-<name>` stores. */
 function isOriginalStore(dir: string, listed: Set<string>): boolean {
-  return listed.has(path.normalize(dir)) || fs.existsSync(path.join(dir, ORIGINAL.marker));
+  return listed.has(path.normalize(dir)) || ORIGINAL.markers.some((m) => fs.existsSync(path.join(dir, m)));
 }
 
 /**
@@ -161,7 +161,7 @@ export function importFromOriginal(): void {
     const target = path.join(accountsRoot(), m[1]);
     if (fs.existsSync(target)) continue; // imported before
     if (!hasCredentials(dir)) continue;
-    if (importStore(dir, target, email)) log(`imported ${dir} from Claude Parallel Accounts as ${target}`);
+    if (importStore(dir, target, email)) log(`imported ${dir} from Claude Parallel Accounts (or Profiles) as ${target}`);
   }
 }
 

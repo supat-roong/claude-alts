@@ -31,10 +31,14 @@ import {
  * window that's the REMOTE side (extensionKind "workspace"), so a Windows
  * desktop driving a Linux remote is fully supported and never lands here.
  */
-function activateUnsupported(context: vscode.ExtensionContext, original: boolean): void {
-  const msg = original
-    ? `Claude Parallel Accounts is installed. Both extensions link Claude Code's history to their own ` +
-      `store, so only one can run. Uninstall Claude Parallel Accounts (in every editor on this machine) ` +
+function activateUnsupported(
+  context: vscode.ExtensionContext,
+  conflict: (typeof ORIGINAL.extensions)[number] | undefined
+): void {
+  const original = conflict !== undefined;
+  const msg = conflict
+    ? `${conflict.name} is installed. Both extensions link Claude Code's history to their own ` +
+      `store, so only one can run. Uninstall ${conflict.name} (in every editor on this machine) ` +
       `and reload: your saved accounts have been copied over, and your conversations follow. Until ` +
       `then Claude Alts stays inactive and changes nothing else.`
     : `Claude Alts supports Linux, macOS and Windows — including WSL, Remote-SSH and dev ` +
@@ -44,7 +48,7 @@ function activateUnsupported(context: vscode.ExtensionContext, original: boolean
   // extension next activates for real, so copy them now (see importFromOriginal).
   if (original) importFromOriginal();
   log(
-    `${original ? 'Claude Parallel Accounts is installed' : `platform ${process.platform} is unsupported`} — inert mode, nothing will be touched`
+    `${conflict ? `${conflict.name} is installed` : `platform ${process.platform} is unsupported`} — inert mode, nothing will be touched`
   );
 
   const item = vscode.window.createStatusBarItem(
@@ -66,7 +70,7 @@ function activateUnsupported(context: vscode.ExtensionContext, original: boolean
   const explain = () => {
     if (!original) return void vscode.window.showInformationMessage(msg);
     void vscode.window.showWarningMessage(msg, 'Show it').then((pick) => {
-      if (pick) void vscode.commands.executeCommand('workbench.extensions.search', `@installed ${ORIGINAL.id}`);
+      if (pick) void vscode.commands.executeCommand('workbench.extensions.search', `@installed ${conflict?.id}`);
     });
   };
   context.subscriptions.push(
@@ -85,10 +89,11 @@ function activateUnsupported(context: vscode.ExtensionContext, original: boolean
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Checked first: the original's mere presence is reason enough, on any platform.
-  const original =
-    isSupportedPlatform() && (!!vscode.extensions.getExtension(ORIGINAL.id) || installedInAnyEditor(ORIGINAL.id));
-  if (original || !isSupportedPlatform()) {
-    activateUnsupported(context, original);
+  const conflict = isSupportedPlatform()
+    ? ORIGINAL.extensions.find((e) => !!vscode.extensions.getExtension(e.id) || installedInAnyEditor(e.id))
+    : undefined;
+  if (conflict || !isSupportedPlatform()) {
+    activateUnsupported(context, conflict);
     return;
   }
   // A credential slot inherited from whatever launched VSCode (a shell that had

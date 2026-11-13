@@ -64,19 +64,25 @@ export function accountsRoot(): string {
 }
 
 /**
- * The extension this one was forked from, Claude Parallel Accounts. Both point
- * Claude Code's own `~/.claude` history at their store, so they can't run side
- * by side (see extension.activate); and its uninstall deletes the stores it
- * listed, so accounts are imported from it rather than adopted (see accounts.ts).
+ * The extension this one was forked from, Claude Parallel Accounts — and Claude
+ * Parallel Profiles, another fork of it that keeps the very same dirs. Each
+ * points Claude Code's own `~/.claude` history at its store, so neither can run
+ * beside this one (see extension.activate); and their uninstall deletes the
+ * stores they listed, so accounts are imported from them rather than adopted
+ * (see accounts.ts).
  */
 export const ORIGINAL = {
-  id: 'dercasdrol.claude-parallel-accounts',
+  /** Extension ids, with the names their users know them by. */
+  extensions: [
+    { id: 'dercasdrol.claude-parallel-accounts', name: 'Claude Parallel Accounts' },
+    { id: 'rivantmedia.claude-parallel-profiles', name: 'Claude Parallel Profiles' },
+  ],
   /** Its shared history store. */
   store: () => path.join(os.homedir(), '.claude-shared'),
   /** Its list of the `~/.claude-<name>` stores it manages — and deletes on uninstall. */
   manifest: () => path.join(os.homedir(), '.claude-windows', '.manifest.json'),
-  /** Marker file in a store it created. */
-  marker: '.claude-parallel-accounts',
+  /** Marker files in a store they created (the name changed between versions). */
+  markers: ['.claude-parallel-accounts', '.parallel-accounts-store'],
 };
 
 /**
