@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { Account, readIdentity, hasCredentials } from './accounts';
+import { Account, readIdentity } from './accounts';
+import { readToken, tokenState, writeToken } from './credentials';
 import { log } from './log';
 import { dataRoot } from './platform';
 
@@ -123,10 +124,12 @@ function recordRan(workingDir: string, account: Account): void {
 export function materialize(account: Account, workingDir: string, force = false): boolean {
   const exists = fs.existsSync(workingDir);
   // Emptied by a logout — of THIS account. A dir emptied while it ran another
-  // one says nothing about this account: stock it.
+  // one says nothing about this account: stock it. A token the Keychain can't
+  // confirm is left alone too: refilling a dir we can't see into is a guess.
   const ranOther = lastRanIn(workingDir) !== undefined && lastRanIn(workingDir) !== account.name;
-  if (exists && !hasCredentials(workingDir) && !force && !ranOther) return false;
-  if (hasCredentials(workingDir) && readIdentity(workingDir)?.email === account.email) {
+  const state = tokenState(workingDir);
+  if (exists && state !== 'present' && !force && !ranOther) return false;
+  if (state === 'present' && readIdentity(workingDir)?.email === account.email) {
     if (lastRanIn(workingDir) !== account.name) recordRan(workingDir, account);
     return false;
   }
@@ -134,8 +137,12 @@ export function materialize(account: Account, workingDir: string, force = false)
   // it holds no credential for is exactly what a `/logout` leaves behind, and
   // reconcile() would then forget a perfectly good account over a store it merely
   // failed to read.
-  if (!fs.existsSync(path.join(account.dir, '.credentials.json'))) {
-    log(`workdir: ${account.name}'s store has no sign-in to copy — ${workingDir} left as it is`);
+  const token = readToken(account.dir);
+  if (!token) {
+    log(
+      `workdir: ${account.name}'s store has ${token === null ? 'no sign-in to copy' : 'a sign-in that could not be read'}` +
+        ` — ${workingDir} left as it is`
+    );
     return false;
   }
   // Nor the token without its identity: the dir's old config would then name
@@ -146,7 +153,7 @@ export function materialize(account: Account, workingDir: string, force = false)
   }
   try {
     fs.mkdirSync(workingDir, { recursive: true, mode: 0o700 });
-    copyFile(path.join(account.dir, '.credentials.json'), path.join(workingDir, '.credentials.json'));
+    if (!writeToken(workingDir, token)) throw new Error('the sign-in could not be written');
     // The config carries the account's identity AND its per-project state (folder
     // trust, allowed tools, MCP servers), so an account keeps those wherever it runs.
     copyFile(configFileOf(account.dir), path.join(workingDir, '.claude.json'));
@@ -166,20 +173,13 @@ export function materialize(account: Account, workingDir: string, force = false)
  * churned by every window that runs it.
  */
 export function refreshStore(account: Account, workingDir: string): void {
-  const src = path.join(workingDir, '.credentials.json');
-  const dst = path.join(account.dir, '.credentials.json');
-  try {
-    if (!fs.existsSync(src)) return;
-    const incoming = fs.readFileSync(src);
-    if (fs.existsSync(dst) && fs.readFileSync(dst).equals(incoming)) return;
-    fs.mkdirSync(account.dir, { recursive: true, mode: 0o700 });
-    const tmp = `${dst}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, incoming, { mode: 0o600 });
-    fs.renameSync(tmp, dst); // atomic: a half-written store is worse than a stale one
-    log(`workdir: refreshed store of ${account.email ?? account.name}`);
-  } catch (err) {
-    log(`workdir: could not refresh store of ${account.name}: ${(err as Error).message}`);
-  }
+  const incoming = readToken(workingDir);
+  if (!incoming) return;
+  const current = readToken(account.dir);
+  if (current && current.equals(incoming)) return;
+  // writeToken is atomic: a half-written store is worse than a stale one.
+  if (writeToken(account.dir, incoming)) log(`workdir: refreshed store of ${account.email ?? account.name}`);
+  else log(`workdir: could not refresh store of ${account.name}`);
 }
 
 /** Every working dir on disk — used to sign an account out of all of them. */

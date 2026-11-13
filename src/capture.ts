@@ -3,13 +3,14 @@ import * as path from 'path';
 import * as os from 'os';
 import { AuthStatus } from './cli';
 import { AccountIdentity } from './accounts';
+import { readToken, writeToken } from './credentials';
 
 /**
  * Snapshots the account currently signed in inside `sourceDir` into a dedicated
  * account directory `targetDir`, copying auth token and identity TOGETHER from
- * the same source so they can never drift apart (the drift between
- * .credentials.json and .claude.json's oauthAccount is exactly what made the
- * old version show one account while billing another).
+ * the same source so they can never drift apart (the drift between the token
+ * and .claude.json's oauthAccount is exactly what made the old version show
+ * one account while billing another).
  *
  * Returns the paths written. Throws if the source has no credentials.
  */
@@ -18,9 +19,10 @@ export function snapshotAccount(
   targetDir: string,
   status: AuthStatus
 ): void {
-  const srcCreds = path.join(sourceDir, '.credentials.json');
-  if (!fs.existsSync(srcCreds)) {
-    throw new Error(`No credentials found in ${sourceDir} — sign in first.`);
+  const token = readToken(sourceDir);
+  if (token === null) throw new Error(`No credentials found in ${sourceDir} — sign in first.`);
+  if (token === undefined) {
+    throw new Error(`The sign-in in ${sourceDir} could not be read. If the Keychain is locked, unlock it and try again.`);
   }
 
   if (path.normalize(sourceDir) === path.normalize(targetDir)) {
@@ -33,12 +35,8 @@ export function snapshotAccount(
   // world-listable directory still leaks which accounts exist on the machine.
   fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
 
-  // 1) Credentials — copy atomically (temp + rename).
-  const dstCreds = path.join(targetDir, '.credentials.json');
-  const tmpCreds = `${dstCreds}.${process.pid}.tmp`;
-  fs.copyFileSync(srcCreds, tmpCreds);
-  fs.chmodSync(tmpCreds, 0o600);
-  fs.renameSync(tmpCreds, dstCreds);
+  // 1) Credentials — written atomically.
+  if (!writeToken(targetDir, token)) throw new Error(`The sign-in could not be saved into ${targetDir}.`);
 
   // 2) Identity (.claude.json). Prefer the real source file; the default
   //    ~/.claude keeps its identity in ~/.claude.json (home) instead.
@@ -124,9 +122,10 @@ export function defaultSourceDir(): string {
  * account in use is mirrored into the default dir. Remove the extension at ANY
  * instant, and Claude Code carries on as if it had never been there.
  *
- * This is not "a token in one more place": `~/.claude/.credentials.json` is exactly
- * where Claude Code keeps its token with no extension installed at all — the
- * canonical location, not a new exposure. Forgetting an account still clears it
+ * This is not "a token in one more place": the default dir's token
+ * (`~/.claude/.credentials.json`, or the `Claude Code-credentials` Keychain item
+ * on macOS) is exactly where Claude Code keeps it with no extension installed at
+ * all — the canonical location, not a new exposure. Forgetting an account still clears it
  * from here too (see dirsHoldingToken).
  *
  * Identity goes to `~/.claude.json` at the HOME ROOT, not into the dir: that is
@@ -137,19 +136,15 @@ export function defaultSourceDir(): string {
 export function mirrorToDefault(sourceDir: string, identity: AccountIdentity | null): void {
   const defaultDir = defaultSourceDir();
   if (isDefaultDir(sourceDir)) return; // already is the default
-  const srcToken = path.join(sourceDir, '.credentials.json');
-  if (!fs.existsSync(srcToken)) return; // signed out — nothing to mirror
+  const incoming = readToken(sourceDir);
+  if (!incoming) return; // signed out (or unreadable) — nothing to mirror
 
   try {
-    const incoming = fs.readFileSync(srcToken);
-    const dstToken = path.join(defaultDir, '.credentials.json');
     // Compare before writing: this runs on every focus change, and rewriting an
-    // identical token would churn the file Claude Code watches.
-    if (!fs.existsSync(dstToken) || !fs.readFileSync(dstToken).equals(incoming)) {
-      fs.mkdirSync(defaultDir, { recursive: true, mode: 0o700 });
-      const tmp = `${dstToken}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, incoming, { mode: 0o600 });
-      fs.renameSync(tmp, dstToken); // atomic: a half-written token is worse than none
+    // identical token would churn the store Claude Code watches.
+    const mirrored = readToken(defaultDir);
+    if (!mirrored || !mirrored.equals(incoming)) {
+      if (!writeToken(defaultDir, incoming)) return; // never an identity without its token
     }
     if (!identity) return;
 

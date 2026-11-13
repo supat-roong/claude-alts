@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Account, AccountRegistry, readIdentity, hasCredentials } from './accounts';
+import { describeTokenLocation, tokenState } from './credentials';
 import { WindowBinding } from './binding';
 import { getAuthStatus, AuthStatus } from './cli';
 import { snapshotAccount, defaultSourceDir, mirrorToDefault } from './capture';
@@ -245,7 +246,15 @@ export class SetupWizard {
     // names an account only while it is saved, so ask the binding what it bound.
     const running = this.binding.getRunningName() ?? this.binding.getActiveName();
 
-    if (!hasCredentials(dir)) {
+    const state = tokenState(dir);
+    // A Keychain that can't be asked (locked, timed out) says nothing about this
+    // window: concluding "signed out" from it would forget a good account. Wait
+    // for the next trigger, by which time it may answer.
+    if (state === 'unknown') {
+      log(`reconcile: the sign-in of ${dir} can't be checked right now — nothing changed`);
+      return;
+    }
+    if (state === 'absent') {
       const active = running;
 
       // The account is gone from disk entirely — it was FORGOTTEN, most likely from
@@ -409,7 +418,7 @@ export class SetupWizard {
       `Claude Alts: you signed out of ${email}, so it was removed from the list — a logout ` +
         `revokes the account everywhere, not just in this window. Sign in again to bring it back.` +
         (failed.length > 0
-          ? ` Its (now revoked) token could not be deleted from: ${failed.join(', ')}.`
+          ? ` Its (now revoked) token could not be deleted from: ${failed.map(describeTokenLocation).join(', ')}.`
           : '')
     );
   }
@@ -700,8 +709,9 @@ export class SetupWizard {
     const stuck = copies.filter((c) => signOut(c.dir) === 'failed');
     if (stuck.length > 0) {
       throw new Error(
-        `could not delete the sign-in of ${email} in ${stuck.map((c) => c.dir).join(', ')}, so it ` +
-          `was not forgotten. Check that folder's permissions and try again.`
+        `could not delete the sign-in of ${email} in ${stuck.map((c) => describeTokenLocation(c.dir)).join(', ')}, ` +
+          `so it was not forgotten. Check that it can be changed (an unlocked Keychain, the folder's ` +
+          `permissions) and try again.`
       );
     }
 
@@ -730,7 +740,8 @@ export class SetupWizard {
     const parts = [`Forgot ${email}.`];
     parts.push(
       failed.length > 0
-        ? `Its sign-in could NOT be deleted from: ${failed.join(', ')}. Delete .credentials.json there by hand.`
+        ? `Its sign-in could NOT be deleted from: ${failed.map(describeTokenLocation).join(', ')}. ` +
+            `Delete it there by hand.`
         : `It is signed out everywhere on this machine; history and settings stay on disk.`
     );
     if (interrupted > 0) {

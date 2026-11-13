@@ -4,12 +4,14 @@ import * as path from 'path';
 import * as os from 'os';
 import { accountsRoot, dataRoot, NOT_A_STORE, ORIGINAL } from './platform';
 import { log } from './log';
+import { deleteToken as deleteTokenOf, readToken, tokenModifiedAt, tokenState, writeToken } from './credentials';
 
 /**
  * An account = a Claude Code data directory (CLAUDE_CONFIG_DIR) that has been
  * logged in. Everything Claude Code needs lives inside it:
  *   <dir>/.claude.json        → config + oauthAccount identity
- *   <dir>/.credentials.json   → OAuth tokens
+ *   <dir>/.credentials.json   → OAuth tokens (on macOS: a Keychain item named
+ *                               after the dir — see credentials.ts)
  *
  * We NEVER touch ~/.claude.json (the global default) — isolation is achieved
  * purely by pointing each window's process.env.CLAUDE_CONFIG_DIR at a dir.
@@ -68,13 +70,13 @@ function originalStores(): Set<string> {
 }
 
 /**
- * The freshest copy of an account's token the original holds: its working dirs
- * (`~/.claude-windows/<id>`) carry the token Claude Code last refreshed, its
- * store only the one from when it was saved — or last synced back.
+ * The dir holding the freshest copy of an account's token the original holds:
+ * its working dirs (`~/.claude-windows/<id>`) carry the token Claude Code last
+ * refreshed, its store only the one from when it was saved — or last synced back.
  */
 function freshestOriginalToken(store: string, email: string): string {
-  let best = path.join(store, '.credentials.json');
-  let bestTime = fs.statSync(best).mtimeMs;
+  let best = store;
+  let bestTime = tokenModifiedAt(store) ?? -1;
   const root = path.dirname(ORIGINAL.manifest());
   let dirs: string[] = [];
   try {
@@ -86,15 +88,12 @@ function freshestOriginalToken(store: string, email: string): string {
     /* no working dirs */
   }
   for (const dir of dirs) {
-    try {
-      const token = path.join(dir, '.credentials.json');
-      const t = fs.statSync(token).mtimeMs;
-      if (t > bestTime && readIdentityFile(path.join(dir, '.claude.json'))?.email === email) {
-        best = token;
-        bestTime = t;
-      }
-    } catch {
-      /* no token there */
+    // Identity first: it's a file read, where asking for the token may cost a process.
+    if (readIdentityFile(path.join(dir, '.claude.json'))?.email !== email) continue;
+    const t = tokenModifiedAt(dir);
+    if (t !== undefined && t > bestTime) {
+      best = dir;
+      bestTime = t;
     }
   }
   return best;
@@ -107,21 +106,21 @@ function freshestOriginalToken(store: string, email: string): string {
  */
 function importStore(from: string, to: string, email: string): boolean {
   try {
+    const token = readToken(freshestOriginalToken(from, email)) ?? readToken(from);
+    if (!token) throw new Error('its sign-in could not be read');
     fs.mkdirSync(to, { recursive: true, mode: 0o700 });
-    for (const [src, name] of [
-      [freshestOriginalToken(from, email), '.credentials.json'],
-      [path.join(from, '.claude.json'), '.claude.json'],
-    ]) {
-      const tmp = path.join(to, `${name}.${process.pid}.tmp`);
-      fs.copyFileSync(src, tmp);
-      fs.chmodSync(tmp, 0o600);
-      fs.renameSync(tmp, path.join(to, name));
-    }
+    if (!writeToken(to, token)) throw new Error('the sign-in could not be written');
+    const tmp = path.join(to, `.claude.json.${process.pid}.tmp`);
+    fs.copyFileSync(path.join(from, '.claude.json'), tmp);
+    fs.chmodSync(tmp, 0o600);
+    fs.renameSync(tmp, path.join(to, '.claude.json'));
     markCreated(to);
     return true;
   } catch (err) {
     log(`could not import ${from}: ${(err as Error).message}`);
     try {
+      // The token may be a Keychain item, which removing the dir would orphan.
+      deleteTokenOf(to);
       fs.rmSync(to, { recursive: true, force: true });
     } catch {
       /* a later import retries into what's left only if it's gone; it's not */
@@ -158,9 +157,10 @@ export function importFromOriginal(): void {
     if (!isOriginalStore(dir, listed)) continue;
     const email = readIdentityFile(path.join(dir, '.claude.json'))?.email;
     // No identity, no account to carry over (and nothing to pair a token with).
-    if (!email || !hasCredentials(dir)) continue;
+    if (!email) continue;
     const target = path.join(accountsRoot(), m[1]);
     if (fs.existsSync(target)) continue; // imported before
+    if (!hasCredentials(dir)) continue;
     if (importStore(dir, target, email)) log(`imported ${dir} from Claude Parallel Accounts as ${target}`);
   }
 }
@@ -220,9 +220,18 @@ export function readIdentity(dir: string): AccountIdentity | null {
   return null;
 }
 
-/** True if the dir looks like a logged-in Claude Code config dir. */
+/** True if the dir is known to hold a token: a logged-in Claude Code config dir. */
 export function hasCredentials(dir: string): boolean {
-  return fs.existsSync(path.join(dir, '.credentials.json'));
+  return tokenState(dir) === 'present';
+}
+
+/**
+ * True if the dir is known to hold NO token. Not the same as !hasCredentials:
+ * a Keychain that can't be asked is neither, and anything that drops an account
+ * or signs a window out must wait for a real answer.
+ */
+export function lacksCredentials(dir: string): boolean {
+  return tokenState(dir) === 'absent';
 }
 
 /** Claude Code's own default dir — never ours to create or delete. */
@@ -358,7 +367,7 @@ export class AccountRegistry {
    * new accounts appear, and signed-out ones disappear.
    */
   async pruneSignedOut(): Promise<Account[]> {
-    const gone = this.list().filter((a) => !hasCredentials(a.dir));
+    const gone = this.list().filter((a) => lacksCredentials(a.dir));
     for (const a of gone) await this.remove(a.name);
     return gone;
   }
@@ -429,10 +438,11 @@ export class AccountRegistry {
     const forgotten = new Set(this.listForgotten().map((a) => path.normalize(a.dir)));
     const found: Account[] = [];
     for (const { name, dir } of candidates) {
-      if (!hasCredentials(dir)) continue;
       // Explicitly forgotten dirs stay on disk — do not resurrect them.
       if (forgotten.has(path.normalize(dir))) continue;
       if (this.getByDir(dir)) continue;
+      // Checked last: on macOS it costs a process, and the rest skip most dirs.
+      if (!hasCredentials(dir)) continue;
       // Another window may have created it (globalState doesn't cross windows);
       // its marker says so. Anything else was made by someone else.
       found.push({ name, dir, origin: isCreatedStore(dir) ? 'created' : 'adopted' });

@@ -15,6 +15,8 @@ const WIN = process.platform === 'win32';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cma-migrate-'));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
+// Tokens as files on every OS: a test must never reach the real macOS Keychain.
+process.env.CLAUDE_ALTS_TOKEN_STORE = 'file';
 const history = load('sharedHistory', path.join(home, 'build-history'));
 const accounts = load('accounts', path.join(home, 'build-accounts'));
 test.after(() => fs.rmSync(home, { recursive: true, force: true }));

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AccountRegistry, readIdentity, hasCredentials } from './accounts';
+import { AccountRegistry, readIdentity, lacksCredentials } from './accounts';
 import { log } from './log';
 import { WindowBinding } from './binding';
 import { getAuthStatus, AuthStatus } from './cli';
@@ -112,13 +112,14 @@ export class StatusBarManager implements vscode.Disposable {
    * What this window's account REALLY is.
    *
    * The identity file outlives the token: after a `/logout` — or a forget in
-   * another window — `.credentials.json` is gone but `.claude.json` still names
+   * another window — the token is gone but `.claude.json` still names
    * the account. So the identity file alone must NEVER be enough to claim
    * "signed in", or the bar happily shows a signed-out account as if nothing
    * happened. Ground truth is the token file plus the CLI's verdict; the
    * identity is only a fast fallback for the email while the CLI is still
-   * answering. (A confirmed `loggedIn` without a token file is still trusted —
-   * that's an API-key setup, which keeps no `.credentials.json`.)
+   * answering. (A confirmed `loggedIn` without a token is still trusted —
+   * that's an API-key setup, which keeps no OAuth token. A Keychain that can't
+   * be asked is no evidence either way, so it never paints "signed out".)
    *
    * The three cached states are NOT interchangeable and collapsing them is a bug:
    *   undefined → not asked yet
@@ -139,7 +140,7 @@ export class StatusBarManager implements vscode.Disposable {
     const unreachable = status === null;
     const cliSaysIn = status?.loggedIn === true;
     const cliSaysOut = status !== undefined && status !== null && status.loggedIn !== true;
-    const signedOut = cliSaysOut || (!hasCredentials(dir) && !cliSaysIn);
+    const signedOut = cliSaysOut || (lacksCredentials(dir) && !cliSaysIn);
     return {
       email: signedOut ? undefined : status?.email ?? readIdentity(dir)?.email,
       signedOut,

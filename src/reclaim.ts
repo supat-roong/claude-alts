@@ -5,27 +5,24 @@ import { execFileSync } from 'child_process';
 import { log } from './log';
 import { readIdentity } from './accounts';
 import { accountsRoot, NOT_A_STORE } from './platform';
+import { deleteToken, tokenState } from './credentials';
 
 /**
  * Reclaiming sensitive data from a forgotten account.
  *
- * An account directory holds exactly ONE credential: `<dir>/.credentials.json`
- * (the OAuth access + refresh token). Everything else in the dir is either
+ * An account directory holds exactly ONE credential: its OAuth access + refresh
+ * token — `<dir>/.credentials.json`, or on macOS the Keychain item named after
+ * the dir (see credentials.ts). Everything else in the dir is either
  * identity/config (`.claude.json` — email/org, no token), rotating backups of
  * that config, or symlinks into the shared-history store. So "reclaim the
- * sensitive data" reduces to deleting that one file — which is exactly what
+ * sensitive data" reduces to deleting that one token — which is exactly what
  * Claude Code's own `/logout` does (verified in its bundle: the credential
- * store's `delete()` unlinks `<CLAUDE_CONFIG_DIR>/.credentials.json`).
+ * store's `delete()` unlinks the file, or deletes the Keychain item).
  *
  * A forceful forget deletes that token unconditionally, then interrupts any
  * live `claude` session still pointing at the dir so nothing keeps running on a
  * credential that no longer exists.
  */
-
-/** The one sensitive file inside an account dir: the OAuth token. */
-export function tokenPath(dir: string): string {
-  return path.join(dir, '.credentials.json');
-}
 
 /**
  * Account state Claude Code's own `/logout` clears out of `.claude.json`,
@@ -82,15 +79,9 @@ export type SignOutResult = 'removed' | 'none' | 'failed';
  * still holding a live credential.
  */
 export function signOut(dir: string): SignOutResult {
-  let result: SignOutResult = 'none';
-  const file = tokenPath(dir);
-  try {
-    if (fs.existsSync(file)) {
-      fs.rmSync(file, { force: true });
-      result = 'removed';
-    }
-  } catch (err) {
-    log(`signOut: could not delete token in ${dir}: ${(err as Error).message}`);
+  const result = deleteToken(dir);
+  if (result === 'failed') {
+    log(`signOut: could not delete the token of ${dir}`);
     return 'failed';
   }
 
@@ -234,8 +225,8 @@ function claudeSessionsFromPs(): ClaudeSession[] {
  * Interrupts every live `claude` session running against any of the given dirs,
  * so a forceful forget leaves no process alive on a just-deleted token. Uses
  * SIGKILL on purpose: on a graceful SIGTERM shutdown Claude Code flushes its
- * in-memory token back to `.credentials.json`, which would resurrect the very
- * file we're about to delete. Callers MUST call this BEFORE removeToken.
+ * in-memory token back to its store, which would resurrect the very token
+ * we're about to delete. Callers MUST call this BEFORE signOut.
  * Returns the number of processes signalled. No-op where sessions can't be listed.
  */
 export function interruptSessions(dirs: string[]): number {
@@ -279,7 +270,7 @@ export function dirsHoldingToken(email: string): string[] {
       /* not there or unreadable — fall back to whatever we have */
     }
   }
-  return candidates.filter(
-    (d) => fs.existsSync(tokenPath(d)) && readIdentity(d)?.email === email
-  );
+  // A token the Keychain couldn't confirm is kept as a candidate: deleting it is
+  // harmless if it isn't there, and skipping it would leave the account signed in.
+  return candidates.filter((d) => readIdentity(d)?.email === email && tokenState(d) !== 'absent');
 }

@@ -7,6 +7,9 @@ const os = require('os');
 const path = require('path');
 const { load } = require('./load');
 
+// Tokens as files on every OS: a test must never reach the real macOS Keychain.
+process.env.CLAUDE_ALTS_TOKEN_STORE = 'file';
+
 const rules = load('rules');
 const reclaim = load('reclaim');
 
