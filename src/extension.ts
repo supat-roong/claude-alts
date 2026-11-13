@@ -12,7 +12,6 @@ import { posixScript, powershellScript, sourceLine, writeShellHelpers } from './
 import { allWorkingDirs, workingRoot } from './workdir';
 import { log, showLog } from './log';
 import {
-  credentialsInKeychain,
   installedInAnyEditor,
   isSupportedPlatform,
   ORIGINAL,
@@ -21,29 +20,23 @@ import {
 } from './platform';
 
 /**
- * Everything this extension does rests on semantics we verified: Claude Code
- * keeping credentials as files, and links for shared history. On any other OS —
- * or on a Mac whose Claude Code keeps its sign-in in the Keychain — those
- * assumptions silently break, up to destructive misbehaviour (e.g. the registry
- * pruning every account because it sees no credential files). So there the
- * extension must not guess: it activates into an INERT mode that touches nothing
- * and says why.
+ * Everything this extension does rests on semantics we verified: where Claude
+ * Code keeps each dir's token (a file, or on macOS a Keychain item), and links
+ * for shared history. On any other OS those assumptions silently break, up to
+ * destructive misbehaviour (e.g. the registry pruning every account because it
+ * sees no tokens). So there the extension must not guess: it activates into an
+ * INERT mode that touches nothing and says why.
  *
  * The check runs where the extension actually executes — in a WSL/SSH/container
  * window that's the REMOTE side (extensionKind "workspace"), so a Windows
  * desktop driving a Linux remote is fully supported and never lands here.
  */
 function activateUnsupported(context: vscode.ExtensionContext, original: boolean): void {
-  const keychain = !original && credentialsInKeychain();
   const msg = original
     ? `Claude Parallel Accounts is installed. Both extensions link Claude Code's history to their own ` +
       `store, so only one can run. Uninstall Claude Parallel Accounts (in every editor on this machine) ` +
       `and reload: your saved accounts have been copied over, and your conversations follow. Until ` +
       `then Claude Alts stays inactive and changes nothing else.`
-    : keychain
-    ? `Claude Code on this Mac keeps its sign-in in the Keychain, which Claude Alts doesn't ` +
-      `support: it only works where Claude Code keeps it in ~/.claude/.credentials.json. It stays ` +
-      `inactive here: no files are read or written, no accounts are touched.`
     : `Claude Alts supports Linux, macOS and Windows — including WSL, Remote-SSH and dev ` +
       `containers. On ${process.platform} it stays inactive: no files are read or written, no accounts ` +
       `are touched.`;
@@ -51,7 +44,7 @@ function activateUnsupported(context: vscode.ExtensionContext, original: boolean
   // extension next activates for real, so copy them now (see importFromOriginal).
   if (original) importFromOriginal();
   log(
-    `${original ? 'Claude Parallel Accounts is installed' : keychain ? 'Keychain-backed Mac is unsupported' : `platform ${process.platform} is unsupported`} — inert mode, nothing will be touched`
+    `${original ? 'Claude Parallel Accounts is installed' : `platform ${process.platform} is unsupported`} — inert mode, nothing will be touched`
   );
 
   const item = vscode.window.createStatusBarItem(
@@ -60,7 +53,7 @@ function activateUnsupported(context: vscode.ExtensionContext, original: boolean
     90
   );
   item.name = 'Claude Account';
-  item.text = `$(account) Claude: ${original ? 'two account extensions' : keychain ? 'Keychain not supported' : 'unsupported OS'}`;
+  item.text = `$(account) Claude: ${original ? 'two account extensions' : 'unsupported OS'}`;
   const tooltip = new vscode.MarkdownString(`$(account) **Claude Alts**\n\n${msg}`);
   tooltip.supportThemeIcons = true;
   item.tooltip = tooltip;
@@ -94,7 +87,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Checked first: the original's mere presence is reason enough, on any platform.
   const original =
     isSupportedPlatform() && (!!vscode.extensions.getExtension(ORIGINAL.id) || installedInAnyEditor(ORIGINAL.id));
-  if (original || !isSupportedPlatform() || credentialsInKeychain()) {
+  if (original || !isSupportedPlatform()) {
     activateUnsupported(context, original);
     return;
   }

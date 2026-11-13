@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { WindowBinding } from './binding';
 import { defaultSourceDir } from './capture';
+import { forgetCachedTokenStates, keychainDatabase, tokenFingerprint } from './credentials';
 
 /**
  * Keeps the status bar honest by repainting it the moment this window's account
@@ -33,10 +34,10 @@ export class AccountWatcher implements vscode.Disposable {
     // survives the atomic temp+rename writes that break fs.watch, and fires on
     // deletion too.
     //
-    // The TOKEN file is watched as well, and it's the one that actually decides
+    // The TOKEN is watched as well, and it's the one that actually decides
     // whether this window is signed in: a `/logout`, or a forget performed in
-    // ANOTHER window, deletes `.credentials.json` while the identity file stays
-    // behind. Without this the bar would keep showing the account as live.
+    // ANOTHER window, deletes it while the identity file stays behind. Without
+    // this the bar would keep showing the account as live.
     //
     // A BOUND window must not watch the home-root file. Every window mirrors its
     // account into the default account (see capture.mirrorToDefault), so two
@@ -50,6 +51,24 @@ export class AccountWatcher implements vscode.Disposable {
     for (const f of files) {
       fs.watchFile(f, { interval: 2000 }, () => this.schedule());
       this.watched.push(f);
+    }
+
+    // On macOS the token is a Keychain item, which has no file of its own. The
+    // Keychain database is one file for every item, though, and changes whenever
+    // any of them does: on a change, compare a fingerprint of THIS dir's item
+    // (its attributes — the secret is never read) and only react when it moved,
+    // so other apps' Keychain traffic doesn't set off a reconcile.
+    const db = keychainDatabase();
+    if (db) {
+      let last = tokenFingerprint(dir);
+      fs.watchFile(db, { interval: 2000 }, () => {
+        forgetCachedTokenStates();
+        const now = tokenFingerprint(dir);
+        if (now === undefined || now === last) return; // can't tell, or not ours
+        last = now;
+        this.schedule();
+      });
+      this.watched.push(db);
     }
   }
 

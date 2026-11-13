@@ -58,7 +58,15 @@ async function scenario(name, setup) {
         '--extensions-dir',
         path.join(tmp, 'ext'),
       ],
-      extensionTestsEnv: { HOME: home, USERPROFILE: home, CMA_TEST_HOME: home, CMA_SCENARIO: name },
+      // Tokens as files: the fake home has no Keychain, and a test must never
+      // reach the real one. The Keychain path has its own tests (test/keychain.test.js).
+      extensionTestsEnv: {
+        HOME: home,
+        USERPROFILE: home,
+        CMA_TEST_HOME: home,
+        CMA_SCENARIO: name,
+        CLAUDE_ALTS_TOKEN_STORE: 'file',
+      },
     });
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

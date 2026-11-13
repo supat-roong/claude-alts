@@ -5,47 +5,16 @@ import * as os from 'os';
 /**
  * Where this extension can run.
  *
- * What it depends on is Claude Code keeping its OAuth token as a FILE
- * (`<CLAUDE_CONFIG_DIR>/.credentials.json`), and a way to link every dir to the
- * shared history. Linux has both. Native Windows keeps the file, and links
- * through directory junctions and hard links — neither needs admin rights or
- * Developer Mode (see sharedHistory.ts); the CLI is the `claude.exe` Claude Code
- * bundles. macOS has the links, but the file only conditionally: Claude Code
- * prefers the Keychain there, and a Keychain-backed Mac is not supported (see
- * credentialsInKeychain).
+ * What it depends on is a token store per CLAUDE_CONFIG_DIR, and a way to link
+ * every dir to the shared history. Linux keeps the token in
+ * `<CLAUDE_CONFIG_DIR>/.credentials.json` and has symlinks. Native Windows keeps
+ * the file, and links through directory junctions and hard links — neither needs
+ * admin rights or Developer Mode (see sharedHistory.ts); the CLI is the
+ * `claude.exe` Claude Code bundles. macOS has symlinks and keeps the token in a
+ * Keychain item named after the dir (see credentials.ts).
  */
 export function isSupportedPlatform(): boolean {
   return process.platform === 'linux' || process.platform === 'darwin' || process.platform === 'win32';
-}
-
-let keychain: boolean | undefined;
-
-/**
- * True when this Mac's Claude Code keeps its token in the Keychain instead of
- * `.credentials.json`. Every flow here copies, compares and deletes that file,
- * and on such a Mac there is none — so the extension stays INERT there, exactly
- * as on an unsupported OS. It never reads or writes the Keychain.
- *
- * The fingerprint is the default account: `~/.claude.json` names a signed-in
- * account but `~/.claude/.credentials.json` does not exist. Our own sign-out
- * clears that identity along with the token (see reclaim.signOut), so a leftover
- * identity without a token is Claude Code's Keychain at work, not our doing.
- *
- * Decided once per activation: the answer must not flip under a running window.
- */
-export function credentialsInKeychain(): boolean {
-  if (keychain !== undefined) return keychain;
-  if (process.platform !== 'darwin') return (keychain = false);
-  const home = os.homedir();
-  if (fs.existsSync(path.join(home, '.claude', '.credentials.json'))) return (keychain = false);
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf-8')) as {
-      oauthAccount?: { emailAddress?: string };
-    };
-    return (keychain = Boolean(cfg.oauthAccount?.emailAddress));
-  } catch {
-    return (keychain = false); // no config yet — nothing signed in, nothing to misread
-  }
 }
 
 /**
