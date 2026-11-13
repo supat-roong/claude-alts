@@ -28,11 +28,17 @@
 // ROOT — verified empirically, and NOT the layout of a CLAUDE_CONFIG_DIR account,
 // where both sit inside the dir. Restoring to the wrong one leaves Claude Code
 // silently signed out, which is the bug this hook exists to prevent.
+//
+// On macOS the token is not a file but a login-Keychain item named after the dir:
+// "Claude Code-credentials" for ~/.claude, "Claude Code-credentials-<first 8 hex
+// of sha256(dir)>" otherwise (see src/credentials.ts, which this mirrors).
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 
 /** Kept in sync with SHARED_DIRS + SHARED_FILES in src/sharedHistory.ts. */
 const SHARED_DIRS = [
@@ -406,6 +412,151 @@ function consolidateHistory(defaultDir, store, otherDirs) {
   return complete;
 }
 
+// ─── A dir's token: a file on Linux and Windows, a Keychain item on macOS ─────
+// Kept in step with src/credentials.ts.
+
+const TOKEN_FILE = '.credentials.json';
+/** CLAUDE_ALTS_TOKEN_STORE: for tests only, so they never reach the real Keychain. */
+const KEYCHAIN =
+  (process.env.CLAUDE_ALTS_TOKEN_STORE || (os.platform() === 'darwin' ? 'keychain' : 'file')) === 'keychain';
+const NOT_FOUND = 44;
+/**
+ * Each Keychain call gets a short leash, and once one times out the Keychain is
+ * left alone for the rest of the run: a hung `security` must not carry the hook
+ * past VSCode's kill timer, where it would be stopped between two moves.
+ */
+const SECURITY_TIMEOUT_MS = 1000;
+let keychainHung = false;
+
+function security(args, input) {
+  // Started late enough to still finish well inside VSCode's kill timer.
+  if (keychainHung || Date.now() + SECURITY_TIMEOUT_MS > deadline + 700) return { status: null, stdout: '' };
+  try {
+    const r = spawnSync(process.env.CLAUDE_ALTS_SECURITY_BIN || '/usr/bin/security', args, {
+      input,
+      encoding: 'utf-8',
+      timeout: SECURITY_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024,
+    });
+    if (r.error || r.signal) {
+      keychainHung = true;
+      return { status: null, stdout: '' };
+    }
+    return { status: r.status, stdout: r.stdout || '' };
+  } catch {
+    return { status: null, stdout: '' };
+  }
+}
+
+function keychainService(dir) {
+  const strip = (p) => path.normalize(p).replace(/[\\/]+$/, '');
+  if (strip(dir) === strip(path.join(os.homedir(), '.claude'))) return 'Claude Code-credentials';
+  const hash = crypto.createHash('sha256').update(dir.normalize('NFC')).digest('hex').slice(0, 8);
+  return `Claude Code-credentials-${hash}`;
+}
+
+function keychainAccount() {
+  let user = '';
+  try {
+    user = process.env.USER || os.userInfo().username;
+  } catch {
+    // no user name — Claude Code's fallback below
+  }
+  return /^[a-zA-Z0-9._-]+$/.test(user) ? user : 'claude-code-user';
+}
+
+/** A dir's token, or null when it has none or it can't be read. Keychain first, as Claude Code reads. */
+function readToken(dir) {
+  if (KEYCHAIN) {
+    const r = security(['find-generic-password', '-a', keychainAccount(), '-w', '-s', keychainService(dir)]);
+    if (r.status === 0) {
+      const text = r.stdout.trim();
+      try {
+        JSON.parse(text);
+        return Buffer.from(text, 'utf-8');
+      } catch {
+        return null; // not a token we can hand on
+      }
+    }
+    if (r.status !== NOT_FOUND && !fs.existsSync(path.join(dir, TOKEN_FILE))) return null;
+  }
+  try {
+    return fs.readFileSync(path.join(dir, TOKEN_FILE));
+  } catch {
+    return null;
+  }
+}
+
+function writeTokenFile(dir, data) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const file = path.join(dir, TOKEN_FILE);
+  fs.writeFileSync(`${file}.tmp`, data, { mode: 0o600 });
+  fs.renameSync(`${file}.tmp`, file);
+}
+
+/** Stores `data` as `dir`'s token. True on success. Never a plaintext file an older item would shadow. */
+function writeToken(dir, data) {
+  if (!KEYCHAIN) {
+    writeTokenFile(dir, data);
+    return true;
+  }
+  const account = keychainAccount();
+  const service = keychainService(dir);
+  const hex = data.toString('hex');
+  const line = `add-generic-password -U -a "${account}" -s "${service}" -X "${hex}"\n`;
+  const r =
+    line.length <= 4032
+      ? security(['-i'], line)
+      : security(['add-generic-password', '-U', '-a', account, '-s', service, '-X', hex]);
+  if (r.status === 0) {
+    fs.rmSync(path.join(dir, TOKEN_FILE), { force: true });
+    return true;
+  }
+  // No usable Keychain at all (not a locked one, not a timeout): Claude Code then
+  // keeps the token in the file — but only with no item left to shadow it.
+  if (r.status !== null && r.status !== 36) {
+    const { status } = security(['find-generic-password', '-a', account, '-s', service]);
+    if (status === NOT_FOUND) {
+      writeTokenFile(dir, data);
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Deletes a dir's token. True when it is gone (deleted, or never there). */
+function dropToken(dir) {
+  let gone = true;
+  if (KEYCHAIN) {
+    const { status } = security(['delete-generic-password', '-a', keychainAccount(), '-s', keychainService(dir)]);
+    gone = status === 0 || status === NOT_FOUND;
+  }
+  try {
+    fs.rmSync(path.join(dir, TOKEN_FILE), { force: true });
+  } catch {
+    gone = false;
+  }
+  return gone;
+}
+
+/** When a dir's token last changed (ms), or undefined if it has none. Attributes only. */
+function tokenTime(dir) {
+  if (KEYCHAIN) {
+    const r = security(['find-generic-password', '-a', keychainAccount(), '-s', keychainService(dir)]);
+    const m =
+      r.status === 0 && /"mdat"<timedate>=\S*\s+"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z/.exec(r.stdout);
+    if (m) {
+      const [y, mo, d, h, mi, sec] = m.slice(1).map(Number);
+      return Date.UTC(y, mo - 1, d, h, mi, sec);
+    }
+  }
+  try {
+    return fs.statSync(path.join(dir, TOKEN_FILE)).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The dir holding the account to hand back: the freshest OAuth token on disk.
  *
@@ -418,14 +569,10 @@ function lastUsedDir(working, stores) {
     let best;
     let bestTime = -1;
     for (const dir of dirs) {
-      try {
-        const t = fs.statSync(path.join(dir, '.credentials.json')).mtimeMs;
-        if (t > bestTime) {
-          bestTime = t;
-          best = dir;
-        }
-      } catch {
-        // no token here — not a candidate
+      const t = tokenTime(dir);
+      if (t !== undefined && t > bestTime) {
+        bestTime = t;
+        best = dir;
       }
     }
     return best;
@@ -445,12 +592,10 @@ function lastUsedDir(working, stores) {
  */
 function restoreDefaultAccount(source, defaultDir, defaultConfig) {
   try {
-    const token = path.join(source, '.credentials.json');
-    if (!fs.existsSync(token)) return;
-    fs.mkdirSync(defaultDir, { recursive: true, mode: 0o700 });
-    const dstToken = path.join(defaultDir, '.credentials.json');
-    fs.copyFileSync(token, dstToken);
-    fs.chmodSync(dstToken, 0o600);
+    const token = readToken(source);
+    if (!token) return;
+    // Never the identity without its token: Claude Code would show an account it can't use.
+    if (!writeToken(defaultDir, token)) return;
 
     const cfgFile = path.join(source, '.claude.json');
     if (!fs.existsSync(cfgFile)) return;
@@ -526,37 +671,14 @@ function isDisposable(dir) {
 
 /** Deletes the OAuth token from our dirs. The one step that must happen even when we bail out. */
 function dropTokens(dirs) {
-  for (const dir of dirs) {
-    try {
-      fs.rmSync(path.join(dir, '.credentials.json'), { force: true });
-    } catch {
-      /* best-effort */
-    }
-  }
-}
-
-/**
- * Kept in sync with credentialsInKeychain() in src/platform.ts: a Mac whose
- * Claude Code keeps its sign-in in the Keychain, where the extension is inert.
- */
-function credentialsInKeychain(home) {
-  if (os.platform() !== 'darwin') return false;
-  if (fs.existsSync(path.join(home, '.claude', '.credentials.json'))) return false;
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf-8'));
-    return Boolean(cfg && cfg.oauthAccount && cfg.oauthAccount.emailAddress);
-  } catch {
-    return false;
-  }
+  for (const dir of dirs) dropToken(dir);
 }
 
 function main() {
-  // On unsupported platforms — and on a Keychain-backed Mac — the extension
-  // activates into an inert mode and never created anything, so there is nothing
-  // to revert, and guessing at those layouts on uninstall is exactly the
-  // manipulation that mode promises not to do.
+  // On unsupported platforms the extension activates into an inert mode and
+  // never created anything, so there is nothing to revert, and guessing at those
+  // layouts on uninstall is exactly the manipulation that mode promises not to do.
   if (!['linux', 'darwin', 'win32'].includes(os.platform())) return;
-  if (credentialsInKeychain(os.homedir())) return;
 
   const home = os.homedir();
   // Kept in sync with dataRoot() and friends in src/platform.ts.
@@ -601,13 +723,11 @@ function main() {
   //    and dangling links goes (removeTree never follows a link, so the store's
   //    content is never at risk here). One the user put their own config in
   //    stays, minus its token, with its history links aimed at ~/.claude so it
-  //    still works as a Claude Code dir.
-  const keep = (dir) => {
-    dropTokens([dir]);
-    reaimLinks(dir, store, defaultDir);
-  };
+  //    still works as a Claude Code dir. So does one whose Keychain item could
+  //    not be deleted: the dir's path is the only record of that item's name.
+  const keep = (dir) => reaimLinks(dir, store, defaultDir);
   for (const dir of ours) {
-    if (outOfTime() || !isDisposable(dir)) {
+    if (!dropToken(dir) || outOfTime() || !isDisposable(dir)) {
       keep(dir);
       continue;
     }
