@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 — 2026-11-13
+
+### Changed
+
+- **New icon.** The icon inherited from Claude Parallel Accounts is replaced with the Claude Alts card stack.
+- **Docs.** Native Windows support is no longer labelled experimental. The README now says the extension runs remote-side in any remote window, lists the commands, and brings the status bar, shared history, Restricted Mode, bundle size and limit-offer notes up to date.
+- Releases now publish to Open VSX through trusted publishing, without an access token.
+
 ## 1.0.0 — 2026-11-08
 
 First release as **Claude Alts** (`supat-roong.claude-alts`), based on [Claude Parallel Accounts](https://github.com/DercasDrol/claude-parallel-profiles) 1.3.2 by dercasdrol. It is published separately, with its own commands, settings (`claudeAlts.*`) and data folder (`~/.claude-alts`). Changes relative to Claude Parallel Accounts 1.3.2:
